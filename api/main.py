@@ -5,7 +5,7 @@ import os
 app = FastAPI()
 
 # توکن ربات که بعداً در تنظیمات Vercel قرار می‌دهیم
-TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "توکن_خود_را_اینجا_قرار_دهید_یا_از_متغیر_محیطی_بخوانید")
+TELEGRAM_BOT_TOKEN = os.getenv(8376133909:AAH2zXLoZOTdxkEebmUioujWtReLIJDlGSQ)
 TELEGRAM_API_URL = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}"
 
 async def send_message(chat_id: int, text: str):
