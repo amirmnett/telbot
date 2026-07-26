@@ -7,7 +7,9 @@ import re
 import asyncio
 from datetime import datetime, timedelta
 import jdatetime
-from openai import AsyncOpenAI
+# کتابخانه‌های جدید برای تبدیل صوت به متن جایگزین OpenAI شدند
+import speech_recognition as sr
+from pydub import AudioSegment
 from telegram import Update, ReplyKeyboardMarkup, KeyboardButton, InlineKeyboardButton, InlineKeyboardMarkup, WebAppInfo
 from telegram.ext import (
     Application,
@@ -28,9 +30,6 @@ ADMIN_ID = os.environ.get("ADMIN_ID")
 ADMIN_ID = int(ADMIN_ID) if ADMIN_ID else None
 admin_filter = filters.User(user_id=ADMIN_ID) if ADMIN_ID else filters.ALL
 
-# تنظیم کلاینت OpenAI برای Voice-to-Text
-OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY")
-openai_client = AsyncOpenAI(api_key=OPENAI_API_KEY) if OPENAI_API_KEY else None
 WEBAPP_URL = os.environ.get("WEBAPP_URL", "https://your-render-app.onrender.com/webapp") # آدرس مینی اپ شما
 
 # ================= Database Setup =================
@@ -254,6 +253,16 @@ async def start_add_task(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     )
     return WAITING_FOR_TASK_TEXT
 
+def _process_voice_sync(ogg_path, wav_path):
+    """تابع کمکی همگام برای تبدیل صوت و استخراج متن"""
+    audio = AudioSegment.from_ogg(ogg_path)
+    audio.export(wav_path, format="wav")
+    
+    recognizer = sr.Recognizer()
+    with sr.AudioFile(wav_path) as source:
+        audio_data = recognizer.record(source)
+        return recognizer.recognize_google(audio_data, language="fa-IR")
+
 async def receive_task_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     message = update.message
     if message.text == "❌ انصراف":
@@ -263,27 +272,33 @@ async def receive_task_text(update: Update, context: ContextTypes.DEFAULT_TYPE) 
     text = ""
     file_id = None
 
-    # پشتیبانی از Voice-to-Text با OpenAI Whisper
+    # پشتیبانی از Voice-to-Text با SpeechRecognition رایگان گوگل
     if message.voice:
-        if not openai_client:
-            await message.reply_text("⚠️ کلید API برای Whisper تنظیم نشده است. لطفاً متن تایپ کنید.")
-            return WAITING_FOR_TASK_TEXT
+        msg = await message.reply_text("⏳ در حال پردازش صوت به متن...")
+        ogg_path = f"voice_{message.message_id}.ogg"
+        wav_path = f"voice_{message.message_id}.wav"
         
-        voice_file = await context.bot.get_file(message.voice.file_id)
-        file_bytes = await voice_file.download_as_bytearray()
-        
-        msg = await message.reply_text("⏳ در حال تبدیل صوت به متن...")
         try:
-            transcript = await openai_client.audio.transcriptions.create(
-                model="whisper-1", 
-                file=("voice.ogg", io.BytesIO(file_bytes), "audio/ogg")
-            )
-            text = transcript.text
+            voice_file = await context.bot.get_file(message.voice.file_id)
+            await voice_file.download_to_drive(ogg_path)
+            
+            # اجرای پردازش سنگین در یک thread مجزا برای جلوگیری از قفل شدن ربات
+            text = await asyncio.to_thread(_process_voice_sync, ogg_path, wav_path)
+            
             await msg.delete()
             await message.reply_text(f"🗣 متن استخراج شده:\n{text}")
-        except Exception as e:
-            await msg.edit_text(f"خطا در تبدیل صوت: {e}")
+        except sr.UnknownValueError:
+            await msg.edit_text("متأسفانه نتوانستم صدا را تشخیص دهم. لطفاً واضح‌تر صحبت کنید.")
             return WAITING_FOR_TASK_TEXT
+        except sr.RequestError:
+            await msg.edit_text("خطا در برقراری ارتباط با سرور گوگل.")
+            return WAITING_FOR_TASK_TEXT
+        except Exception as e:
+            await msg.edit_text(f"خطا در پردازش صوت: {e}")
+            return WAITING_FOR_TASK_TEXT
+        finally:
+            if os.path.exists(ogg_path): os.remove(ogg_path)
+            if os.path.exists(wav_path): os.remove(wav_path)
     else:
         if message.document:
             file_id = message.document.file_id
