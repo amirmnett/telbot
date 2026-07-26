@@ -40,8 +40,9 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
 
 async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
+    user_id = query.from_user.id  # تعریف user_id برای استفاده در بخش‌های مختلف
     
-    # 🔴 این خط بسیار مهم است و حالت لودینگ دکمه را متوقف می‌کند
+    # متوقف کردن حالت لودینگ دکمه
     await query.answer()
     
     data = query.data
@@ -51,11 +52,14 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return WAITING_FOR_TASK
         
     elif data == 'list_tasks':
-        # کدهای مربوط به نمایش لیست
-        await query.edit_message_text(text="لیست وظایف شما:")
-        return ConversationHandler.END
-
+        tasks = user_tasks.get(user_id, [])
         
+        # بررسی خالی بودن لیست
+        if not tasks:
+            keyboard = [[InlineKeyboardButton("🔙 بازگشت به منو", callback_data='main_menu')]]
+            await query.edit_message_text(text="لیست وظایف شما خالی است. 📭", reply_markup=InlineKeyboardMarkup(keyboard))
+            return ConversationHandler.END
+
         keyboard = []
         for i, task in enumerate(tasks):
             # دکمه‌ای برای مارک کردن تسک به عنوان انجام شده
@@ -65,9 +69,10 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await query.edit_message_text("📋 لیست وظایف فعلی شما (برای حذف روی آن‌ها کلیک کنید):", reply_markup=InlineKeyboardMarkup(keyboard))
         return ConversationHandler.END
 
-    elif query.data.startswith('done_'):
-        task_index = int(query.data.split('_')[1])
+    elif data.startswith('done_'):
+        task_index = int(data.split('_')[1])
         tasks = user_tasks.get(user_id, [])
+        
         if 0 <= task_index < len(tasks):
             completed_task = tasks.pop(task_index)
             await query.answer(f"تسک '{completed_task}' با موفقیت انجام و حذف شد!", show_alert=True)
@@ -76,7 +81,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await start_command(update, context)
         return ConversationHandler.END
 
-    elif query.data == 'main_menu':
+    elif data == 'main_menu':
         await start_command(update, context)
         return ConversationHandler.END
 
@@ -132,23 +137,22 @@ def main():
 
     # منطق دیپلوی وب‌هوک و پولینگ
     if RENDER_HOSTNAME:
-        # استفاده از توکن در مسیر برای امنیت بیشتر و جلوگیری از تداخل با Health Check های رندر
         WEBHOOK_URL = f"https://{RENDER_HOSTNAME}/{TOKEN}"
         logger.info(f"Starting Webhook on {WEBHOOK_URL} (Port: {PORT})")
         
-    application.run_webhook(
+        application.run_webhook(
             listen="0.0.0.0",
             port=PORT,
             webhook_url=WEBHOOK_URL,
             url_path=TOKEN,
             drop_pending_updates=True,
-            allowed_updates=Update.ALL_TYPES  # 👈 این خط اضافه می‌شود
+            allowed_updates=Update.ALL_TYPES
         )
-else:
+    else:
         logger.info("Starting Polling mode (Local)...")
         application.run_polling(
             drop_pending_updates=True,
-            allowed_updates=Update.ALL_TYPES  # 👈 این خط اضافه می‌شود
+            allowed_updates=Update.ALL_TYPES
         )
 
 if __name__ == '__main__':
