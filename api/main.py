@@ -144,7 +144,7 @@ def main():
             drop_pending_updates=True,
             allowed_updates=Update.ALL_TYPES  # 👈 این خط اضافه می‌شود
         )
-    else:
+else:
         logger.info("Starting Polling mode (Local)...")
         application.run_polling(
             drop_pending_updates=True,
