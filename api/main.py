@@ -39,21 +39,22 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
         await update.callback_query.edit_message_text(welcome_text, reply_markup=reply_markup)
 
 async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """مدیریت کلیک روی دکمه‌های شیشه‌ای"""
     query = update.callback_query
+    
+    # 🔴 این خط بسیار مهم است و حالت لودینگ دکمه را متوقف می‌کند
     await query.answer()
-    user_id = query.from_user.id
-
-    if query.data == 'add_task':
-        await query.edit_message_text("📝 لطفاً عنوان وظیفه جدید خود را تایپ کرده و ارسال کنید:\n\n(برای انصراف /cancel را ارسال کنید)")
+    
+    data = query.data
+    
+    if data == 'add_task':
+        await query.edit_message_text(text="لطفاً عنوان وظیفه جدید را وارد کنید:")
         return WAITING_FOR_TASK
+        
+    elif data == 'list_tasks':
+        # کدهای مربوط به نمایش لیست
+        await query.edit_message_text(text="لیست وظایف شما:")
+        return ConversationHandler.END
 
-    elif query.data == 'list_tasks':
-        tasks = user_tasks.get(user_id, [])
-        if not tasks:
-            keyboard = [[InlineKeyboardButton("🔙 بازگشت به منو", callback_data='main_menu')]]
-            await query.edit_message_text("📭 لیست وظایف شما خالی است.", reply_markup=InlineKeyboardMarkup(keyboard))
-            return ConversationHandler.END
         
         keyboard = []
         for i, task in enumerate(tasks):
