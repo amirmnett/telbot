@@ -100,13 +100,13 @@ async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 def main():
     # توکن ربات خود را اینجا قرار دهید
- TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN")
+    TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN")
     
     # ساخت اپلیکیشن و فعال‌سازی JobQueue
-application = Application.builder().token(TOKEN).build()
+    application = Application.builder().token(TOKEN).build()
 
     # تنظیمات مکالمه برای گرفتن اطلاعات رویداد
-conv_handler = ConversationHandler(
+    conv_handler = ConversationHandler(
         entry_points=[CallbackQueryHandler(button_handler, pattern="^add_event$")],
         states={
             ASK_TITLE: [MessageHandler(filters.TEXT & ~filters.COMMAND, ask_title)],
@@ -116,13 +116,12 @@ conv_handler = ConversationHandler(
     )
 
     # افزودن هندلرها به اپلیکیشن
-application.add_handler(CommandHandler("start", start))
-application.add_handler(conv_handler)
-application.add_handler(CallbackQueryHandler(button_handler))
+    application.add_handler(CommandHandler("start", start))
+    application.add_handler(conv_handler)
+    application.add_handler(CallbackQueryHandler(button_handler))
 
     # اجرای ربات (Polling)
-application.run_polling()
+    application.run_polling()
 
 if __name__ == "__main__":
     main()
-
