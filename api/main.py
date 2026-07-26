@@ -103,7 +103,7 @@ def main():
  TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN")
     
     # ساخت اپلیکیشن و فعال‌سازی JobQueue
-    application = Application.builder().token(TOKEN).build()
+application = Application.builder().token(TOKEN).build()
 
     # تنظیمات مکالمه برای گرفتن اطلاعات رویداد
     conv_handler = ConversationHandler(
