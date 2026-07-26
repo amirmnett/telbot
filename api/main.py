@@ -1,4 +1,5 @@
 import logging
+import os
 from datetime import timedelta
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import (
@@ -99,7 +100,7 @@ async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 def main():
     # توکن ربات خود را اینجا قرار دهید
-    TOKEN = "YOUR_TELEGRAM_BOT_TOKEN"
+ TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN")
     
     # ساخت اپلیکیشن و فعال‌سازی JobQueue
     application = Application.builder().token(TOKEN).build()
