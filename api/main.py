@@ -131,18 +131,20 @@ def main():
 
     # منطق دیپلوی وب‌هوک و پولینگ
     if RENDER_HOSTNAME:
-        WEBHOOK_URL = f"https://{RENDER_HOSTNAME}"
+        # استفاده از توکن در مسیر برای امنیت بیشتر و جلوگیری از تداخل با Health Check های رندر
+        WEBHOOK_URL = f"https://{RENDER_HOSTNAME}/{TOKEN}"
         logger.info(f"Starting Webhook on {WEBHOOK_URL} (Port: {PORT})")
         
         application.run_webhook(
             listen="0.0.0.0",
             port=PORT,
             webhook_url=WEBHOOK_URL,
-            url_path="" 
+            url_path=TOKEN,
+            drop_pending_updates=True  # حذف پیام‌های گیرکرده در صف برای جلوگیری از هنگ کردن ربات
         )
     else:
         logger.info("Starting Polling mode (Local)...")
-        application.run_polling()
+        application.run_polling(drop_pending_updates=True)
 
 if __name__ == '__main__':
     main()
