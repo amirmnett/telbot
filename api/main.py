@@ -136,16 +136,20 @@ def main():
         WEBHOOK_URL = f"https://{RENDER_HOSTNAME}/{TOKEN}"
         logger.info(f"Starting Webhook on {WEBHOOK_URL} (Port: {PORT})")
         
-        application.run_webhook(
+               application.run_webhook(
             listen="0.0.0.0",
             port=PORT,
             webhook_url=WEBHOOK_URL,
             url_path=TOKEN,
-            drop_pending_updates=True  # حذف پیام‌های گیرکرده در صف برای جلوگیری از هنگ کردن ربات
+            drop_pending_updates=True,
+            allowed_updates=Update.ALL_TYPES  # 👈 این خط اضافه می‌شود
         )
     else:
         logger.info("Starting Polling mode (Local)...")
-        application.run_polling(drop_pending_updates=True)
+        application.run_polling(
+            drop_pending_updates=True,
+            allowed_updates=Update.ALL_TYPES  # 👈 این خط اضافه می‌شود
+        )
 
 if __name__ == '__main__':
     main()
