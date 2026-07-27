@@ -1,27 +1,24 @@
 import os
 import logging
 import sqlite3
-import csv
-import io
 import re
 import asyncio
 from datetime import datetime, timedelta
+from contextlib import asynccontextmanager
+
 import jdatetime
-# کتابخانه‌های تبدیل صوت به متن
 import speech_recognition as sr
 from pydub import AudioSegment
+
 from telegram import Update, ReplyKeyboardMarkup, KeyboardButton, InlineKeyboardButton, InlineKeyboardMarkup, WebAppInfo
 from telegram.ext import (
-    Application,
-    CommandHandler,
-    MessageHandler,
-    CallbackQueryHandler,
-    filters,
-    ContextTypes,
-    ConversationHandler,
+    Application, CommandHandler, MessageHandler, CallbackQueryHandler,
+    filters, ContextTypes, ConversationHandler,
 )
-# اضافه شدن aiohttp برای وب‌سرور مجازی (حل مشکل Render)
-from aiohttp import web
+
+# جایگزینی aiohttp با FastAPI برای هماهنگی با uvicorn
+from fastapi import FastAPI
+from fastapi.staticfiles import StaticFiles
 
 # ================= Configuration & Logging =================
 logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
@@ -32,7 +29,13 @@ ADMIN_ID = os.environ.get("ADMIN_ID")
 ADMIN_ID = int(ADMIN_ID) if ADMIN_ID else None
 admin_filter = filters.User(user_id=ADMIN_ID) if ADMIN_ID else filters.ALL
 
-WEBAPP_URL = os.environ.get("WEBAPP_URL", "https://your-render-app.onrender.com/webapp") # آدرس مینی اپ شما
+WEBAPP_URL = os.environ.get("WEBAPP_URL", "https://your-render-app.onrender.com/static/index.html")
+
+# ================= States for Conversation =================
+WAITING_FOR_TASK_TEXT = 1
+WAITING_FOR_PRIORITY = 2
+WAITING_FOR_TIME = 3
+WAITING_FOR_RECURRENCE = 4
 
 # ================= Database Setup =================
 def init_db():
@@ -57,12 +60,6 @@ def init_db():
         except sqlite3.OperationalError:
             pass
         conn.commit()
-
-# ================= States for Conversation =================
-WAITING_FOR_TASK_TEXT = 1
-WAITING_FOR_PRIORITY = 2
-WAITING_FOR_TIME = 3
-WAITING_FOR_RECURRENCE = 4
 
 # ================= Keyboards =================
 def get_main_keyboard():
@@ -179,11 +176,9 @@ async def render_tasks(update, context, tasks):
         await update.message.reply_text(content, reply_markup=InlineKeyboardMarkup(inline_kb), parse_mode='HTML')
 
 # ================= Bot Handlers =================
-# تابع جدید برای دستور /start
 async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
-        "👋 <b>سلام! به ربات مدیریت وظایف خوش آمدید.</b>\n\n"
-        "برای شروع یکی از گزینه‌های زیر را انتخاب کنید:",
+        "👋 <b>سلام! به ربات مدیریت وظایف خوش آمدید.</b>\n\nبرای شروع یکی از گزینه‌های زیر را انتخاب کنید:",
         reply_markup=get_main_keyboard(),
         parse_mode='HTML'
     )
@@ -232,7 +227,6 @@ async def inline_buttons_handler(update: Update, context: ContextTypes.DEFAULT_T
 
         if action == 'done':
             await asyncio.to_thread(_update_task_status, task_id, 'completed')
-            
             if recurrence == 'daily':
                 new_due = None
                 if task[4]:
@@ -254,8 +248,7 @@ async def inline_buttons_handler(update: Update, context: ContextTypes.DEFAULT_T
 # ================= Add Task Conversation =================
 async def start_add_task(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     await update.message.reply_text(
-        "📝 <b>عنوان وظیفه را تایپ کنید یا ویس (Voice) بفرستید:</b>\n\n"
-        "<i>💡 ویس شما با هوش مصنوعی تبدیل به متن می‌شود.</i>", 
+        "📝 <b>عنوان وظیفه را تایپ کنید یا ویس (Voice) بفرستید:</b>\n\n<i>💡 ویس شما با هوش مصنوعی تبدیل به متن می‌شود.</i>", 
         reply_markup=get_cancel_keyboard(), parse_mode='HTML'
     )
     return WAITING_FOR_TASK_TEXT
@@ -263,7 +256,6 @@ async def start_add_task(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
 def _process_voice_sync(ogg_path, wav_path):
     audio = AudioSegment.from_ogg(ogg_path)
     audio.export(wav_path, format="wav")
-    
     recognizer = sr.Recognizer()
     with sr.AudioFile(wav_path) as source:
         audio_data = recognizer.record(source)
@@ -275,30 +267,19 @@ async def receive_task_text(update: Update, context: ContextTypes.DEFAULT_TYPE) 
         await update.message.reply_text("لغو شد 🔙", reply_markup=get_main_keyboard())
         return ConversationHandler.END
 
-    text = ""
-    file_id = None
+    text, file_id = "", None
 
     if message.voice:
         msg = await message.reply_text("⏳ در حال پردازش صوت به متن...")
-        ogg_path = f"voice_{message.message_id}.ogg"
-        wav_path = f"voice_{message.message_id}.wav"
-        
+        ogg_path, wav_path = f"voice_{message.message_id}.ogg", f"voice_{message.message_id}.wav"
         try:
             voice_file = await context.bot.get_file(message.voice.file_id)
             await voice_file.download_to_drive(ogg_path)
-            
             text = await asyncio.to_thread(_process_voice_sync, ogg_path, wav_path)
-            
             await msg.delete()
             await message.reply_text(f"🗣 متن استخراج شده:\n{text}")
-        except sr.UnknownValueError:
-            await msg.edit_text("متأسفانه نتوانستم صدا را تشخیص دهم. لطفاً واضح‌تر صحبت کنید.")
-            return WAITING_FOR_TASK_TEXT
-        except sr.RequestError:
-            await msg.edit_text("خطا در برقراری ارتباط با سرور گوگل.")
-            return WAITING_FOR_TASK_TEXT
         except Exception as e:
-            await msg.edit_text(f"خطا در پردازش صوت: {e}")
+            await msg.edit_text(f"خطا در پردازش صوت: لطفاً واضح‌تر صحبت کنید یا پیام متنی بفرستید.")
             return WAITING_FOR_TASK_TEXT
         finally:
             if os.path.exists(ogg_path): os.remove(ogg_path)
@@ -315,26 +296,18 @@ async def receive_task_text(update: Update, context: ContextTypes.DEFAULT_TYPE) 
 
     hashtags = re.findall(r'#(\w+)', text)
     context.user_data.update({'temp_task': text, 'temp_file': file_id, 'temp_category': ", ".join(hashtags) if hashtags else None})
-
     await update.message.reply_text("🎚 <b>اولویت این کار چقدر است؟</b>", reply_markup=get_priority_keyboard(), parse_mode='HTML')
     return WAITING_FOR_PRIORITY
 
 async def receive_priority(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    text = update.message.text
-    if text == "❌ انصراف":
-        return ConversationHandler.END
-        
-    priority_map = {"🔴 بالا": "high", "🟡 متوسط": "medium", "🟢 پایین": "low"}
-    context.user_data['temp_priority'] = priority_map.get(text, "medium")
-    
+    if update.message.text == "❌ انصراف": return ConversationHandler.END
+    context.user_data['temp_priority'] = {"🔴 بالا": "high", "🟡 متوسط": "medium", "🟢 پایین": "low"}.get(update.message.text, "medium")
     await update.message.reply_text("⏰ <b>زمان یادآوری (HH:MM):</b>", reply_markup=get_time_keyboard(), parse_mode='HTML')
     return WAITING_FOR_TIME
 
 async def receive_time(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     text = update.message.text
-    if text == "❌ انصراف":
-        return ConversationHandler.END
-
+    if text == "❌ انصراف": return ConversationHandler.END
     due_time_str = None
     if text != "⏭ رد کردن (بدون زمان)":
         try:
@@ -346,64 +319,28 @@ async def receive_time(update: Update, context: ContextTypes.DEFAULT_TYPE) -> in
         except ValueError:
             await update.message.reply_text("⚠️ فرمت زمان اشتباه است.")
             return WAITING_FOR_TIME
-
     context.user_data['temp_due_time'] = due_time_str
     await update.message.reply_text("🔄 <b>آیا این وظیفه تکرارشونده است؟</b>", reply_markup=get_recurrence_keyboard(), parse_mode='HTML')
     return WAITING_FOR_RECURRENCE
 
 async def receive_recurrence(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    text = update.message.text
-    user_id = update.message.from_user.id
-    if text == "❌ انصراف":
-        return ConversationHandler.END
-
-    recurrence = "daily" if "روزانه" in text else "none"
+    if update.message.text == "❌ انصراف": return ConversationHandler.END
     ud = context.user_data
-    
     await asyncio.to_thread(
-        _add_task_to_db, user_id, ud['temp_task'], ud['temp_priority'], 
-        ud.get('temp_due_time'), ud['temp_category'], ud['temp_file'], recurrence
+        _add_task_to_db, update.message.from_user.id, ud['temp_task'], ud['temp_priority'], 
+        ud.get('temp_due_time'), ud['temp_category'], ud['temp_file'], "daily" if "روزانه" in update.message.text else "none"
     )
-    
     await update.message.reply_text(f"✅ <b>وظیفه ثبت شد:</b>\n📌 {ud['temp_task']}", reply_markup=get_main_keyboard(), parse_mode='HTML')
     context.user_data.clear()
     return ConversationHandler.END
 
-# ================= Dummy Web Server (Render Fix) =================
-async def health_check(request):
-    """پاسخگویی به درخواست‌های Health Check سرور Render"""
-    return web.Response(text="Bot and Dummy Server are running!")
+# ================= FastAPI & Bot Initialization =================
+TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN")
+ptb_app = None
 
-async def setup_dummy_server_and_wait(app: Application):
-    """راه‌اندازی وب‌سرور و ایجاد تاخیر برای اطمینان از بسته شدن نسخه قبلی"""
-    webapp = web.Application()
-    webapp.router.add_get('/', health_check)
-    
-    runner = web.AppRunner(webapp)
-    await runner.setup()
-    
-    port = int(os.environ.get("PORT", 8080))
-    site = web.TCPSite(runner, '0.0.0.0', port)
-    await site.start()
-    logger.info(f"Dummy web server started on port {port}")
-    
-    logger.info("Waiting for old instances to shut down properly...")
-    await asyncio.sleep(10)
-
-# ================= Main Loop =================
-def main():
-    init_db()
-    TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN")
-    
-    if not TOKEN:
-        logger.error("TELEGRAM_BOT_TOKEN is not set.")
-        return
-
-    application = Application.builder().token(TOKEN).post_init(setup_dummy_server_and_wait).build()
-
-    # هندلر دستور /start به برنامه اضافه شد
-    application.add_handler(CommandHandler("start", start_command, filters=admin_filter))
-
+if TOKEN:
+    ptb_app = Application.builder().token(TOKEN).build()
+    ptb_app.add_handler(CommandHandler("start", start_command, filters=admin_filter))
     conv_handler = ConversationHandler(
         entry_points=[MessageHandler(filters.Regex("^➕ افزودن وظیفه جدید$") & admin_filter, start_add_task)],
         states={
@@ -414,13 +351,34 @@ def main():
         },
         fallbacks=[CommandHandler('cancel', lambda u, c: u.message.reply_text("لغو شد", reply_markup=get_main_keyboard()))],
     )
+    ptb_app.add_handler(conv_handler)
+    ptb_app.add_handler(MessageHandler(filters.Regex("^(📋 لیست وظایف من|🗂 دسته‌بندی‌ها|📊 آمار عملکرد|🍅 پومودورو \(۲۵ دقیقه\)|📥 خروجی اکسل \(CSV\))$") & admin_filter, handle_main_menu))
+    ptb_app.add_handler(CallbackQueryHandler(inline_buttons_handler))
 
-    application.add_handler(conv_handler)
-    application.add_handler(MessageHandler(filters.Regex("^(📋 لیست وظایف من|🗂 دسته‌بندی‌ها|📊 آمار عملکرد|🍅 پومودورو \(۲۵ دقیقه\)|📥 خروجی اکسل \(CSV\))$") & admin_filter, handle_main_menu))
-    application.add_handler(CallbackQueryHandler(inline_buttons_handler))
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # هنگام شروع سرور
+    init_db()
+    if ptb_app:
+        await ptb_app.initialize()
+        await ptb_app.start()
+        await ptb_app.updater.start_polling(drop_pending_updates=True)
+        logger.info("Bot started successfully!")
+    yield
+    # هنگام خاموش شدن سرور
+    if ptb_app:
+        await ptb_app.updater.stop()
+        await ptb_app.stop()
+        await ptb_app.shutdown()
 
-    logger.info("Starting bot polling...")
-    application.run_polling(drop_pending_updates=True)
+# متغیر app که uvicorn به دنبال آن است
+app = FastAPI(lifespan=lifespan)
 
-if __name__ == '__main__':
-    main()
+# سرو کردن فایل‌های استاتیک مینی‌اپ (اگر پوشه static وجود داشته باشد)
+if os.path.exists("static"):
+    app.mount("/static", StaticFiles(directory="static"), name="static")
+
+@app.get("/")
+async def health_check():
+    """مسیر Health Check برای جلوگیری از خطای Render"""
+    return {"status": "success", "message": "Bot & FastAPI Server are running!"}
