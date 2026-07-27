@@ -1,0 +1,45 @@
+# ================= Dummy Web Server (Render Fix) =================
+async def health_check(request):
+    return web.Response(text="Bot and Dummy Server are running!")
+
+async def webapp_placeholder(request):
+    """یک صفحه وب ساده برای نمایش در مینی اپ تلگرام"""
+    html_content = """
+    <!DOCTYPE html>
+    <html lang="fa" dir="rtl">
+    <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>مینی اپ وظایف</title>
+        <script src="https://telegram.org/js/telegram-web-app.js"></script>
+        <style>
+            body { font-family: Tahoma, Arial, sans-serif; padding: 20px; text-align: center; background-color: var(--tg-theme-bg-color, #ffffff); color: var(--tg-theme-text-color, #000000); }
+            .btn { background-color: var(--tg-theme-button-color, #3390ec); color: var(--tg-theme-button-text-color, #ffffff); padding: 10px 20px; border: none; border-radius: 5px; cursor: pointer; }
+        </style>
+    </head>
+    <body>
+        <h2>به مینی اپ مدیریت وظایف خوش آمدید</h2>
+        <p>در این بخش به زودی رابط کاربری گرافیکی (UI) قرار خواهد گرفت.</p>
+        <button class="btn" onclick="Telegram.WebApp.close()">بستن</button>
+        <script>
+            Telegram.WebApp.ready();
+            Telegram.WebApp.expand();
+        </script>
+    </body>
+    </html>
+    """
+    return web.Response(text=html_content, content_type='text/html')
+
+async def setup_dummy_server_and_wait(app: Application):
+    webapp = web.Application()
+    webapp.router.add_get('/', health_check)
+    webapp.router.add_get('/webapp', webapp_placeholder) # اضافه شدن مسیر مینی اپ
+    
+    runner = web.AppRunner(webapp)
+    await runner.setup()
+    
+    port = int(os.environ.get("PORT", 8080))
+    site = web.TCPSite(runner, '0.0.0.0', port)
+    await site.start()
+    logger.info(f"Dummy web server started on port {port}")
+    await asyncio.sleep(10)
