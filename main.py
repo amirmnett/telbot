@@ -7,7 +7,7 @@ import re
 import asyncio
 from datetime import datetime, timedelta
 import jdatetime
-# کتابخانه‌های جدید برای تبدیل صوت به متن جایگزین OpenAI شدند
+# کتابخانه‌های تبدیل صوت به متن
 import speech_recognition as sr
 from pydub import AudioSegment
 from telegram import Update, ReplyKeyboardMarkup, KeyboardButton, InlineKeyboardButton, InlineKeyboardMarkup, WebAppInfo
@@ -20,6 +20,8 @@ from telegram.ext import (
     ContextTypes,
     ConversationHandler,
 )
+# اضافه شدن aiohttp برای وب‌سرور مجازی (حل مشکل Render)
+from aiohttp import web
 
 # ================= Configuration & Logging =================
 logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
@@ -36,7 +38,6 @@ WEBAPP_URL = os.environ.get("WEBAPP_URL", "https://your-render-app.onrender.com/
 def init_db():
     with sqlite3.connect(DB_NAME) as conn:
         cursor = conn.cursor()
-        # فیلد recurrence برای وظایف تکرارشونده اضافه شد
         cursor.execute('''
             CREATE TABLE IF NOT EXISTS tasks (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -51,7 +52,6 @@ def init_db():
                 created_at TIMESTAMP
             )
         ''')
-        # تلاش برای اضافه کردن ستون در صورتی که دیتابیس از قبل موجود باشد
         try:
             cursor.execute("ALTER TABLE tasks ADD COLUMN recurrence TEXT DEFAULT 'none'")
         except sqlite3.OperationalError:
@@ -105,7 +105,7 @@ def get_recurrence_keyboard():
 def _add_task_to_db(user_id, text, priority, due_time, category, file_id, recurrence='none'):
     with sqlite3.connect(DB_NAME) as conn:
         cursor = conn.cursor()
-        created_at = jdatetime.datetime.now().strftime("%Y-%m-%d %H:%M") # تاریخ شمسی
+        created_at = jdatetime.datetime.now().strftime("%Y-%m-%d %H:%M")
         cursor.execute(
             "INSERT INTO tasks (user_id, task_text, priority, due_time, category, file_id, recurrence, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
             (user_id, text, priority, due_time, category, file_id, recurrence, created_at)
@@ -162,7 +162,6 @@ async def render_tasks(update, context, tasks):
         icon = "🔴" if priority == 'high' else "🟡" if priority == 'medium' else "🟢"
         cat_text = f"\n🏷 دسته‌بندی: {category}" if category else ""
         
-        # تبدیل نمایش تاریخ به شمسی در صورت وجود
         time_text = ""
         if due_time:
             try:
@@ -225,10 +224,9 @@ async def inline_buttons_handler(update: Update, context: ContextTypes.DEFAULT_T
         if action == 'done':
             await asyncio.to_thread(_update_task_status, task_id, 'completed')
             
-            # منطق تسک‌های تکرارشونده
             if recurrence == 'daily':
                 new_due = None
-                if task[4]: # due_time
+                if task[4]:
                     dt_obj = datetime.strptime(task[4], "%Y-%m-%d %H:%M") + timedelta(days=1)
                     new_due = dt_obj.strftime("%Y-%m-%d %H:%M")
                 await asyncio.to_thread(_add_task_to_db, task[1], task[2], task[3], new_due, task[5], task[6], recurrence)
@@ -254,7 +252,6 @@ async def start_add_task(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     return WAITING_FOR_TASK_TEXT
 
 def _process_voice_sync(ogg_path, wav_path):
-    """تابع کمکی همگام برای تبدیل صوت و استخراج متن"""
     audio = AudioSegment.from_ogg(ogg_path)
     audio.export(wav_path, format="wav")
     
@@ -272,7 +269,6 @@ async def receive_task_text(update: Update, context: ContextTypes.DEFAULT_TYPE) 
     text = ""
     file_id = None
 
-    # پشتیبانی از Voice-to-Text با SpeechRecognition رایگان گوگل
     if message.voice:
         msg = await message.reply_text("⏳ در حال پردازش صوت به متن...")
         ogg_path = f"voice_{message.message_id}.ogg"
@@ -282,7 +278,6 @@ async def receive_task_text(update: Update, context: ContextTypes.DEFAULT_TYPE) 
             voice_file = await context.bot.get_file(message.voice.file_id)
             await voice_file.download_to_drive(ogg_path)
             
-            # اجرای پردازش سنگین در یک thread مجزا برای جلوگیری از قفل شدن ربات
             text = await asyncio.to_thread(_process_voice_sync, ogg_path, wav_path)
             
             await msg.delete()
@@ -365,9 +360,20 @@ async def receive_recurrence(update: Update, context: ContextTypes.DEFAULT_TYPE)
     context.user_data.clear()
     return ConversationHandler.END
 
-def main():
+# ================= Dummy Web Server (Render Fix) =================
+async def health_check(request):
+    """پاسخگویی به درخواست‌های Health Check سرور Render"""
+    return web.Response(text="Bot and Dummy Server are running!")
+
+# ================= Main Async Loop =================
+async def run_bot_and_server():
     init_db()
     TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN")
+    
+    if not TOKEN:
+        logger.error("TELEGRAM_BOT_TOKEN is not set.")
+        return
+
     application = Application.builder().token(TOKEN).build()
 
     conv_handler = ConversationHandler(
@@ -385,7 +391,28 @@ def main():
     application.add_handler(MessageHandler(filters.Regex("^(📋 لیست وظایف من|🗂 دسته‌بندی‌ها|📊 آمار عملکرد|🍅 پومودورو \(۲۵ دقیقه\)|📥 خروجی اکسل \(CSV\))$") & admin_filter, handle_main_menu))
     application.add_handler(CallbackQueryHandler(inline_buttons_handler))
 
-    application.run_polling()
+    # 1. راه‌اندازی ربات در پس‌زمینه (Polling)
+    await application.initialize()
+    await application.start()
+    await application.updater.start_polling()
+
+    # 2. راه‌اندازی وب‌سرور مجازی
+    app = web.Application()
+    app.router.add_get('/', health_check)
+    
+    runner = web.AppRunner(app)
+    await runner.setup()
+    
+    port = int(os.environ.get("PORT", 8080))
+    site = web.TCPSite(runner, '0.0.0.0', port)
+    await site.start()
+    
+    logger.info(f"Dummy web server started on port {port}")
+
+    # 3. باز نگه‌داشتن حلقه اجرای برنامه تا بی‌نهایت
+    stop_signal = asyncio.Event()
+    await stop_signal.wait()
 
 if __name__ == '__main__':
-    main()
+    # اجرای تابع اصلی به صورت ناهمگام
+    asyncio.run(run_bot_and_server())
