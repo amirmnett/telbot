@@ -3,3 +3,5 @@ jdatetime
 SpeechRecognition
 pydub
 aiohttp
+fastapi
+uvicorn
