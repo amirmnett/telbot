@@ -1,4 +1,4 @@
-# استفاده از ایمیج رسمی پایتون
+# استفاده از تصویر پایه پایتون
 FROM python:3.11-slim
 
 # تنظیم دایرکتوری کاری
@@ -14,8 +14,8 @@ RUN apt-get update && \
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-# کپی کردن کل فایل‌های پروژه
+# کپی کردن کل کدهای پروژه
 COPY . .
 
-# دستور اجرای ربات
+# اجرای ربات
 CMD ["python", "main.py"]
