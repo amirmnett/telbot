@@ -179,6 +179,15 @@ async def render_tasks(update, context, tasks):
         await update.message.reply_text(content, reply_markup=InlineKeyboardMarkup(inline_kb), parse_mode='HTML')
 
 # ================= Bot Handlers =================
+# تابع جدید برای دستور /start
+async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await update.message.reply_text(
+        "👋 <b>سلام! به ربات مدیریت وظایف خوش آمدید.</b>\n\n"
+        "برای شروع یکی از گزینه‌های زیر را انتخاب کنید:",
+        reply_markup=get_main_keyboard(),
+        parse_mode='HTML'
+    )
+
 async def handle_main_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = update.message.text
     user_id = update.message.from_user.id
@@ -378,7 +387,6 @@ async def setup_dummy_server_and_wait(app: Application):
     await site.start()
     logger.info(f"Dummy web server started on port {port}")
     
-    # ۱۰ ثانیه تاخیر برای اطمینان از خاموش شدن کامل پروسه‌های قبلی روی سرور Render
     logger.info("Waiting for old instances to shut down properly...")
     await asyncio.sleep(10)
 
@@ -391,8 +399,10 @@ def main():
         logger.error("TELEGRAM_BOT_TOKEN is not set.")
         return
 
-    # اتصال وب‌سرور مجازی به چرخه راه‌اندازی ربات با استفاده از post_init
     application = Application.builder().token(TOKEN).post_init(setup_dummy_server_and_wait).build()
+
+    # هندلر دستور /start به برنامه اضافه شد
+    application.add_handler(CommandHandler("start", start_command, filters=admin_filter))
 
     conv_handler = ConversationHandler(
         entry_points=[MessageHandler(filters.Regex("^➕ افزودن وظیفه جدید$") & admin_filter, start_add_task)],
@@ -409,11 +419,8 @@ def main():
     application.add_handler(MessageHandler(filters.Regex("^(📋 لیست وظایف من|🗂 دسته‌بندی‌ها|📊 آمار عملکرد|🍅 پومودورو \(۲۵ دقیقه\)|📥 خروجی اکسل \(CSV\))$") & admin_filter, handle_main_menu))
     application.add_handler(CallbackQueryHandler(inline_buttons_handler))
 
-    # استفاده از متد استاندارد run_polling که مدیریت سیگنال‌های سیستم عامل (SIGTERM/SIGINT) 
-    # را به صورت خودکار انجام می‌دهد و نسخه قدیمی با دستور Render بلافاصله قطع می‌شود.
     logger.info("Starting bot polling...")
     application.run_polling(drop_pending_updates=True)
 
 if __name__ == '__main__':
-    # در این حالت نیازی به asyncio.run دستی نیست، run_polling همه چیز را مدیریت می‌کند.
     main()
