@@ -391,12 +391,7 @@ async def run_bot_and_server():
     application.add_handler(MessageHandler(filters.Regex("^(📋 لیست وظایف من|🗂 دسته‌بندی‌ها|📊 آمار عملکرد|🍅 پومودورو \(۲۵ دقیقه\)|📥 خروجی اکسل \(CSV\))$") & admin_filter, handle_main_menu))
     application.add_handler(CallbackQueryHandler(inline_buttons_handler))
 
-    # 1. راه‌اندازی ربات در پس‌زمینه (Polling)
-    await application.initialize()
-    await application.start()
-    await application.updater.start_polling()
-
-    # 2. راه‌اندازی وب‌سرور مجازی
+    # 1. ابتدا راه‌اندازی وب‌سرور مجازی برای تایید Health Check توسط Render
     app = web.Application()
     app.router.add_get('/', health_check)
     
@@ -406,13 +401,22 @@ async def run_bot_and_server():
     port = int(os.environ.get("PORT", 8080))
     site = web.TCPSite(runner, '0.0.0.0', port)
     await site.start()
-    
     logger.info(f"Dummy web server started on port {port}")
 
-    # 3. باز نگه‌داشتن حلقه اجرای برنامه تا بی‌نهایت
+    # 2. ایجاد تاخیر کوتاه تا Render نسخه قبلی را به طور کامل متوقف کند (جلوگیری از خطای Conflict)
+    logger.info("Waiting for Render to terminate old instances...")
+    await asyncio.sleep(10)
+
+    # 3. راه‌اندازی ربات در پس‌زمینه (Polling)
+    await application.initialize()
+    await application.start()
+    await application.updater.start_polling(drop_pending_updates=True) # حذف آپدیت‌های گیر کرده
+    logger.info("Bot is now polling...")
+
+    # 4. باز نگه‌داشتن حلقه اجرای برنامه تا بی‌نهایت
     stop_signal = asyncio.Event()
     await stop_signal.wait()
 
 if __name__ == '__main__':
-    # اجرای تابع اصلی به صورت ناهمگام
     asyncio.run(run_bot_and_server())
+
