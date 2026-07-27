@@ -30,20 +30,29 @@
     <button onclick="closeApp()">بستن مینی اپ</button>
 
     <script>
-        // راه‌اندازی مینی اپ
-        const tg = window.Telegram.WebApp;
-        tg.expand(); // باز شدن اپ در حالت تمام صفحه
+        // اطمینان از بارگذاری کامل صفحه قبل از اجرای اسکریپت
+        document.addEventListener("DOMContentLoaded", function() {
+            const tg = window.Telegram.WebApp;
+            
+            // این متد برای دریافت صحیح اطلاعات از تلگرام الزامی است
+            tg.ready(); 
+            
+            // باز شدن اپ در حالت تمام صفحه
+            tg.expand(); 
 
-        // نمایش نام کاربر تلگرام
-        if (tg.initDataUnsafe && tg.initDataUnsafe.user) {
-            document.getElementById('user-info').innerText = "سلام " + tg.initDataUnsafe.user.first_name + " عزیز!";
-        } else {
-            document.getElementById('user-info').innerText = "اطلاعات کاربر یافت نشد.";
-        }
+            // بررسی و نمایش اطلاعات کاربر تلگرام
+            if (tg.initDataUnsafe && tg.initDataUnsafe.user) {
+                // دریافت نام کاربر (در صورت نبود نام، از کلمه "کاربر" استفاده می‌شود)
+                const firstName = tg.initDataUnsafe.user.first_name || "کاربر";
+                document.getElementById('user-info').innerText = "سلام " + firstName + " عزیز!";
+            } else {
+                document.getElementById('user-info').innerText = "اطلاعات کاربر یافت نشد.";
+            }
+        });
 
         // تابع بستن اپ
         function closeApp() {
-            tg.close();
+            window.Telegram.WebApp.close();
         }
     </script>
 </body>
