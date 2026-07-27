@@ -1,0 +1,50 @@
+<!DOCTYPE html>
+<html lang="fa" dir="rtl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>مینی اپ من</title>
+    <!-- اتصال به کتابخانه رسمی تلگرام -->
+    <script src="https://telegram.org/js/telegram-web-app.js"></script>
+    <style>
+        body { 
+            font-family: Tahoma, sans-serif; 
+            text-align: center; 
+            padding: 20px; 
+            /* استفاده از رنگ‌های تم خود کاربر در تلگرام */
+            background-color: var(--tg-theme-bg-color, #ffffff); 
+            color: var(--tg-theme-text-color, #000000); 
+        }
+        button { 
+            padding: 10px 20px; 
+            font-size: 16px; 
+            background-color: var(--tg-theme-button-color, #3390ec); 
+            color: var(--tg-theme-button-text-color, #ffffff); 
+            border: none; border-radius: 8px; cursor: pointer; margin-top: 20px;
+        }
+    </style>
+</head>
+<body>
+    <h2>خوش آمدید!</h2>
+    <p id="user-info">در حال دریافت اطلاعات...</p>
+    <button onclick="closeApp()">بستن مینی اپ</button>
+
+    <script>
+        // راه‌اندازی مینی اپ
+        const tg = window.Telegram.WebApp;
+        tg.expand(); // باز شدن اپ در حالت تمام صفحه
+
+        // نمایش نام کاربر تلگرام
+        if (tg.initDataUnsafe && tg.initDataUnsafe.user) {
+            document.getElementById('user-info').innerText = "سلام " + tg.initDataUnsafe.user.first_name + " عزیز!";
+        } else {
+            document.getElementById('user-info').innerText = "اطلاعات کاربر یافت نشد.";
+        }
+
+        // تابع بستن اپ
+        function closeApp() {
+            tg.close();
+        }
+    </script>
+</body>
+</html>
