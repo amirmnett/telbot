@@ -1,7 +1,6 @@
-python-telegram-bot[job-queue,webhooks]==20.7
-jdatetime
-SpeechRecognition
-pydub
-aiohttp
-fastapi
-uvicorn
+  python-telegram-bot==21.1.1
+  fastapi==0.110.1
+  uvicorn==0.29.0
+  pydub==0.25.1
+  SpeechRecognition==3.10.3
+  jdatetime==5.0.0
