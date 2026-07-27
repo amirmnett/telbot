@@ -365,8 +365,25 @@ async def health_check(request):
     """پاسخگویی به درخواست‌های Health Check سرور Render"""
     return web.Response(text="Bot and Dummy Server are running!")
 
-# ================= Main Async Loop =================
-async def run_bot_and_server():
+async def setup_dummy_server_and_wait(app: Application):
+    """راه‌اندازی وب‌سرور و ایجاد تاخیر برای اطمینان از بسته شدن نسخه قبلی"""
+    webapp = web.Application()
+    webapp.router.add_get('/', health_check)
+    
+    runner = web.AppRunner(webapp)
+    await runner.setup()
+    
+    port = int(os.environ.get("PORT", 8080))
+    site = web.TCPSite(runner, '0.0.0.0', port)
+    await site.start()
+    logger.info(f"Dummy web server started on port {port}")
+    
+    # ۱۰ ثانیه تاخیر برای اطمینان از خاموش شدن کامل پروسه‌های قبلی روی سرور Render
+    logger.info("Waiting for old instances to shut down properly...")
+    await asyncio.sleep(10)
+
+# ================= Main Loop =================
+def main():
     init_db()
     TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN")
     
@@ -374,7 +391,8 @@ async def run_bot_and_server():
         logger.error("TELEGRAM_BOT_TOKEN is not set.")
         return
 
-    application = Application.builder().token(TOKEN).build()
+    # اتصال وب‌سرور مجازی به چرخه راه‌اندازی ربات با استفاده از post_init
+    application = Application.builder().token(TOKEN).post_init(setup_dummy_server_and_wait).build()
 
     conv_handler = ConversationHandler(
         entry_points=[MessageHandler(filters.Regex("^➕ افزودن وظیفه جدید$") & admin_filter, start_add_task)],
@@ -391,32 +409,11 @@ async def run_bot_and_server():
     application.add_handler(MessageHandler(filters.Regex("^(📋 لیست وظایف من|🗂 دسته‌بندی‌ها|📊 آمار عملکرد|🍅 پومودورو \(۲۵ دقیقه\)|📥 خروجی اکسل \(CSV\))$") & admin_filter, handle_main_menu))
     application.add_handler(CallbackQueryHandler(inline_buttons_handler))
 
-    # 1. ابتدا راه‌اندازی وب‌سرور مجازی برای تایید Health Check توسط Render
-    app = web.Application()
-    app.router.add_get('/', health_check)
-    
-    runner = web.AppRunner(app)
-    await runner.setup()
-    
-    port = int(os.environ.get("PORT", 8080))
-    site = web.TCPSite(runner, '0.0.0.0', port)
-    await site.start()
-    logger.info(f"Dummy web server started on port {port}")
-
-    # 2. ایجاد تاخیر کوتاه تا Render نسخه قبلی را به طور کامل متوقف کند (جلوگیری از خطای Conflict)
-    logger.info("Waiting for Render to terminate old instances...")
-    await asyncio.sleep(10)
-
-    # 3. راه‌اندازی ربات در پس‌زمینه (Polling)
-    await application.initialize()
-    await application.start()
-    await application.updater.start_polling(drop_pending_updates=True) # حذف آپدیت‌های گیر کرده
-    logger.info("Bot is now polling...")
-
-    # 4. باز نگه‌داشتن حلقه اجرای برنامه تا بی‌نهایت
-    stop_signal = asyncio.Event()
-    await stop_signal.wait()
+    # استفاده از متد استاندارد run_polling که مدیریت سیگنال‌های سیستم عامل (SIGTERM/SIGINT) 
+    # را به صورت خودکار انجام می‌دهد و نسخه قدیمی با دستور Render بلافاصله قطع می‌شود.
+    logger.info("Starting bot polling...")
+    application.run_polling(drop_pending_updates=True)
 
 if __name__ == '__main__':
-    asyncio.run(run_bot_and_server())
-
+    # در این حالت نیازی به asyncio.run دستی نیست، run_polling همه چیز را مدیریت می‌کند.
+    main()
